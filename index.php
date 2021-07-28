@@ -5,11 +5,12 @@ class lightwave
 {
     public function login() {
         $login = new stdClass();
+        /* Lightwave RF Login details */
         $login->email = 'alex@pro1.org';
         $login->password = 'blw0roVets!';
         $login->version = '2.0';
+        /* Lightwave RF Login details */
         $login = json_encode($login);
-
         $curl = curl_init();
         curl_setopt_array($curl, array(
             CURLOPT_URL => "https://auth.lightwaverf.com/v2/lightwaverf/autouserlogin/lwapps",
@@ -26,14 +27,16 @@ class lightwave
         $response = curl_exec($curl);
         $err = curl_error($curl);
         curl_close($curl);
-
-        $response = json_decode($response);
-        return $response->tokens->access_token;
+        if($response === 'Not found.') {
+            return ['result'=>0, 'response'=>'ERROR! Unable to access LightwaveRF API, check your credentials'];
+        }
+        $response = json_decode($response);      
+        file_put_contents('access_token.token',$response->tokens->access_token);
+        return ['result'=>1, 'response'=>'access token token updated'];
     }
 
-
     public function fetch($data,$type = 'GET') {
-        $access_token = $this->login();
+        $access_token = file_get_contents('access_token.token');
         $curl = curl_init();
         curl_setopt_array($curl, array(
             CURLOPT_URL => "https://publicapi.lightwaverf.com/v1".$data,
@@ -44,41 +47,54 @@ class lightwave
                 "authorization: bearer {$access_token}"
             )
         ));
-
         $response = curl_exec($curl);
         $err = curl_error($curl);
         curl_close($curl);
-
         $response = json_decode($response);
-        return $response;
+        if((isset($response->message) && $response->message === 'Unauthorized')) {
+            return ['result'=>0, 'response'=>'Unauthorized'];
+        }
+        return ['result'=>1, 'response'=>'response returned', 'data'=>$response];
     }
 }
 
-
 $lw = new lightwave();
 
-$devices = $lw->fetch('/structure/5d8cf584897317722dcad6b4-5d8cf584897317722dcad6b5');
-$rooms = $lw->fetch('/rooms');
+if(!file_exists('access_token.token') || strlen(file_get_contents('access_token.token')) < 10) { // no token exists
+    $login = $lw->login();
+    if(!$login['result']) {
+        echo(json_encode($login));die;
+    }
+}
 
-foreach($devices->devices as &$device){
-    foreach($rooms as $room) {
+$rooms = $lw->fetch('/rooms'); // fetch all rooms
+if(!$rooms['result']) {
+    if($rooms['response'] === 'Unauthorized') { // token expired?
+        $login = $lw->login();
+        if(!$login['result']) {
+            echo(json_encode($login));die;
+        }
+        $rooms = $lw->fetch('/rooms');
+    } else {
+        echo(json_encode($rooms));die;
+        return;
+    }
+}
+$devices = $lw->fetch('/structure/5d8cf584897317722dcad6b4-5d8cf584897317722dcad6b5'); // fetch all devices
+if(!$devices['result']) {
+    echo(json_encode($devices));die;
+    return;
+}
+
+$all_rooms = [];
+foreach($devices['data']->devices as &$device){ // add devices to rooms
+    foreach($rooms['data'] as $room) {
         foreach ($room->featureSets as $room_device) {
             if($room_device === $device->featureSets[0]->featureSetId) {
-                $device->room = $room->name;
+                $all_rooms[$room->name][] = $device;
             }
         }
     }
 }
 
-$devices = json_encode($devices);
-echo($devices);die;
-
-// echo ($devices);
-
-// foreach($devices->devices as $device) {
-//     echo ($device);
-// }
-
-
-
-//echo($devices);
+echo(json_encode($all_rooms));die;
