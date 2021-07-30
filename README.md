@@ -1,4 +1,6 @@
-# lightwaverf
+# using lightwaverf's API in a bootstrap vue application
+
+Enter your lightwaverf login details in public/api.php, then follow the steps below to install
 
 ## Project setup
 ```
